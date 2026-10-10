@@ -1,0 +1,23 @@
+data:
+  dataset: fake
+  root: data
+  batch_size: 32
+  num_workers: 0
+  image_size: 28
+  subset_fit: 200
+  pool_fraction: 0.25
+model:
+  name: simplecnn
+  num_classes: 10
+loss:
+  name: ce
+  gamma: 2.0
+  label_smoothing: 0.0
+train:
+  epochs: 3
+  lr: 0.001
+  optimizer: adamw
+  seed: 0
+  keep_checkpoints: true
+  floor_stop: false
+  checkpoint_dir: outputs/checkpoints-smoke

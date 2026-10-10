@@ -1,0 +1,22 @@
+data:
+  dataset: mnist
+  root: data
+  batch_size: 128
+  num_workers: 2
+  image_size: 28
+  pool_fraction: 0.2
+model:
+  name: simplecnn
+  num_classes: 10
+loss:
+  name: ce
+  gamma: 2.0
+  label_smoothing: 0.0
+train:
+  epochs: 20
+  lr: 0.001
+  optimizer: adamw
+  seed: 0
+  keep_checkpoints: true
+  floor_stop: false
+  checkpoint_dir: outputs/checkpoints-mnist

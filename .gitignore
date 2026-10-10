@@ -1,0 +1,107 @@
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ---------------------------------------------------------------------------
+# Test and tool caches
+# ---------------------------------------------------------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# ---------------------------------------------------------------------------
+# Datasets and run artifacts
+#
+# Anchored with a leading slash on purpose. A bare `data/` also matches the
+# src/data/ package and silently unpublished it in an earlier project; verify
+# with `git ls-files` after any change to this file.
+# ---------------------------------------------------------------------------
+/data/
+/outputs/
+*.pt
+*.pth
+*.ckpt
+*.npz
+*.npy
+*.h5
+*.onnx
+
+# ---------------------------------------------------------------------------
+# Secrets and credentials
+#
+# The project currently contains none of these. They are listed so that a
+# future token paste cannot reach a public repository.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+*.pem
+*.key
+*.p12
+id_rsa*
+credentials.json
+service-account*.json
+secrets*.yaml
+secrets*.yml
+.netrc
+.npmrc
+
+# ---------------------------------------------------------------------------
+# Unpublished working documents
+#
+# GapAnalysis.md carries the pre-registration, the referee audit log, and the
+# claim scoping that the manuscript has not yet earned. It is written by the
+# authors as a private working note and stays out of version control.
+# ---------------------------------------------------------------------------
+GapAnalysis.md
+
+# Manuscript drafts. The .tex sources are tracked once a submission exists;
+# until then the drafts and their build products stay local.
+/paper/
+/paper-*/
+paper/*.aux
+paper/*.log
+paper/*.bbl
+paper/*.bcf
+paper/*.blg
+paper/*.out
+paper/*.toc
+paper/*.run.xml
+paper/*.synctex.gz
+paper/*.fdb_latexmk
+paper/*.fls
+paper/*.synctex
+*.synctex.gz
+
+# ---------------------------------------------------------------------------
+# Notebooks and editors
+# ---------------------------------------------------------------------------
+.ipynb_checkpoints/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------------------------------------------------------------------------
+# Misc
+# ---------------------------------------------------------------------------
+*.tmp
+*.log
+.DS_Store
