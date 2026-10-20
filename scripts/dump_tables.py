@@ -49,11 +49,16 @@ def main() -> None:
         print(f"epochs={data['n_epochs']} pool={data['n_pool']} test={data['n_test']} "
               f"compare_acc={data['compare_acc']:.4f} trials={data['trials']}")
         if args.floor:
-            print(f"{'n_val':>7s} {'se_theory':>10s} {'se_meas':>9s} {'ratio':>7s} {'ranking':>9s} {'MDE':>8s}")
+            print(f"{'n_val':>7s} {'se_theory':>10s} {'se_meas':>9s} {'pooled':>7s} "
+                  f"{'se_samp':>9s} {'se_pair':>9s} {'paired':>7s} {'indep':>7s} {'betw_sd':>9s} {'fpc':>6s}")
             for row in data["floor"]:
                 print(f"{row['n_val']:7d} {row['se_theory']:10.5f} {row['se_measured']:9.5f} "
-                      f"{row['ratio_measured_over_theory']:7.3f} {100 * row['ranking_gap']:9.3f} "
-                      f"{100 * row['mde']:8.3f}")
+                      f"{row['ratio_measured_over_theory']:7.3f} {row.get('se_sampling', float('nan')):9.5f} "
+                      f"{row.get('se_theory_paired', float('nan')):9.5f} "
+                      f"{row.get('ratio_paired', float('nan')):7.3f} "
+                      f"{row.get('ratio_independence', float('nan')):7.3f} "
+                      f"{row.get('between_pair_sd', float('nan')):9.5f} "
+                      f"{row.get('finite_population_factor', float('nan')):6.3f}")
             continue
         print(f"{'rule':>8s} {'n_val':>6s} {'mean_sel':>9s} {'std':>8s} {'sem':>8s} "
               f"{'optim':>8s} {'regret':>8s} {'val_sel':>8s} {'oracle':>8s} {'frac_best':>9s}")

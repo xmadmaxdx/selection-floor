@@ -69,13 +69,22 @@ def main() -> None:
             "se_theory": theory_se,
             "se_measured": measured["observed_sd"],
             "ratio_measured_over_theory": measured["observed_sd"] / theory_se if theory_se > 0 else float("nan"),
+            "se_sampling": measured["sampling_sd"],
+            "se_theory_paired": measured["paired_theory_sd"],
+            "ratio_paired": measured["ratio_paired"],
+            "ratio_independence": measured["ratio_independence"],
+            "between_pair_sd": measured["between_pair_sd"],
+            "finite_population_factor": measured["finite_population_factor"],
             "abs_gap_mean": measured["observed_abs_mean"],
             "ranking_gap": rows[0]["ranking"],
             "mde": rows[0]["mde"],
             "n_pairs": measured["n_pairs"],
         })
-        log.info("n_val=%d theory_se=%.5f measured_se=%.5f ratio=%.3f",
-                 n_val, theory_se, measured["observed_sd"], floor_rows[-1]["ratio_measured_over_theory"])
+        log.info("n_val=%d theory_se=%.5f measured_se=%.5f pooled_ratio=%.3f sampling_se=%.5f "
+                 "paired_ratio=%.3f independence_ratio=%.3f",
+                 n_val, theory_se, measured["observed_sd"],
+                 floor_rows[-1]["ratio_measured_over_theory"], measured["sampling_sd"],
+                 measured["ratio_paired"], measured["ratio_independence"])
 
     replay_rows = []
     for n_val in valid_sizes:

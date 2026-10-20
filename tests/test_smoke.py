@@ -211,6 +211,47 @@ def test_gap_dispersion_matches_closed_form() -> None:
     assert 0.9 < ratio < 1.1, f"measured/theory ratio {ratio:.3f} outside 10% tolerance"
 
 
+def test_gap_dispersion_separates_sampling_noise_from_true_gap() -> None:
+    """The pooled dispersion mixes sampling noise with the true epoch-to-epoch gap.
+
+    Two epochs with identical true accuracy but independent correctness must
+    show a sampling component matching the closed form, and the pooled
+    dispersion must agree with it too, because there is no true gap to add.
+    """
+    rng = np.random.default_rng(21)
+    n_pool = 40000
+    a = rng.random(n_pool) < 0.85
+    b = rng.random(n_pool) < 0.85
+    pool = np.stack([a, b])
+    measured = validation_gap_dispersion(pool, n_val=500, n_draws=200, seed=3)
+    assert measured["between_pair_sd"] < 0.005, \
+        "two epochs with equal accuracy must not contribute a systematic gap"
+    assert 0.85 < measured["ratio_paired"] < 1.15, \
+        f"paired ratio {measured['ratio_paired']:.3f} outside tolerance"
+    assert 0.85 < measured["ratio_independence"] < 1.15, \
+        f"independence ratio {measured['ratio_independence']:.3f} outside tolerance"
+
+
+def test_gap_dispersion_shows_correlation_shrinks_the_noise() -> None:
+    """Two agreeing checkpoints are quieter than the independence formula says.
+
+    This is why the headline closed form is a bound and not an equality: it
+    assumes the two compared checkpoints are independent, and checkpoints from
+    one trajectory are not.
+    """
+    rng = np.random.default_rng(5)
+    n_pool = 40000
+    a = rng.random(n_pool) < 0.85
+    flipped = rng.random(n_pool) < 0.25
+    b = np.where(flipped, ~a, a)
+    pool = np.stack([a, b])
+    measured = validation_gap_dispersion(pool, n_val=500, n_draws=200, seed=4)
+    assert measured["ratio_independence"] < 0.85, \
+        "agreeing checkpoints must be quieter than the independence formula predicts"
+    assert measured["ratio_paired"] > 0.85, \
+        "the agreement-conditioned theory must account for that agreement"
+
+
 def test_stack_correctness_rejects_mismatched_pools() -> None:
     import tempfile
     from pathlib import Path

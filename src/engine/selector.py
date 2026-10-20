@@ -26,13 +26,14 @@ Two things changed after the first referee pass, and both are load-bearing.
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
 from src.constants import ONE_SE_MULTIPLIER
-from src.stats.inference import standard_error
+from src.stats.inference import paired_gap_se, standard_error
 
 log = logging.getLogger("selection-floor")
 
@@ -267,6 +268,29 @@ def validation_gap_dispersion(pool_correct: np.ndarray, n_val: int, n_draws: int
     accuracy* against the closed form. Those are different physical quantities --
     one is a dispersion over epochs of a fixed test set, the other a gap
     threshold -- and the comparison was meaningless.
+
+    The measurement has to be decomposed before it can be compared with the
+    theory, because two different things sit inside it.
+
+    The first is the sampling noise, which is what the theory describes. It is
+    measured here per pair, with each pair's own mean removed across draws, so
+    that a pair with a large true accuracy gap does not contribute its gap to
+    the dispersion. Pooling the raw differences mixes that gap in with the
+    noise, and the excess grows with n_val as the noise shrinks, which is why
+    the raw pooled ratio used to drift away from one.
+
+    The second is the systematic part: the true accuracy difference between the
+    epochs being compared. It is real, it does not shrink with n_val, and it is
+    reported separately as `between_pair_sd`.
+
+    The theory is then tested twice, against both readings of the closed form.
+    `ratio_paired` compares the sampling component with the agreement-
+    conditioned SE for the same pair, using the agreement actually recorded
+    between the two checkpoints. `ratio_independence` compares it with the
+    paper's headline formula, which assumes the two checkpoints are independent.
+    They are not: checkpoints from one trajectory agree on most examples, so
+    the sampling noise is smaller than the independence formula predicts. That
+    is why the headline closed form is a bound and not an equality.
     """
     n_epochs, n_pool = pool_correct.shape
     if n_epochs < 2:
@@ -281,12 +305,47 @@ def validation_gap_dispersion(pool_correct: np.ndarray, n_val: int, n_draws: int
         pairs = [(i, i + 1) for i in range(n_epochs - 1)]
     pool_cols = np.arange(n_pool)
     differences: list[float] = []
+    per_pair: list[list[float]] = [[] for _ in pairs]
     for _ in range(n_draws):
         val_cols = rng.permutation(pool_cols)[:n_val]
         subset = pool_correct[:, val_cols].mean(axis=1)
-        for i, j in pairs:
-            differences.append(float(subset[i] - subset[j]))
+        for index, (i, j) in enumerate(pairs):
+            value = float(subset[i] - subset[j])
+            differences.append(value)
+            per_pair[index].append(value)
     values = np.asarray(differences, dtype=float)
+
+    within_variances: list[float] = []
+    paired_variances: list[float] = []
+    independence_variances: list[float] = []
+    pair_means: list[float] = []
+    # The validation draw is a sample without replacement from a fixed pool of
+    # n_pool examples, so the variance of the sample mean carries the usual
+    # finite-population factor (1 - n_val / n_pool). Both theories below
+    # describe an i.i.d. sample mean and must be corrected by it, or the
+    # comparison is off by exactly that factor. The correction is not cosmetic:
+    # on a pool of 12,000 it is worth 1% at n_val = 250 and 9% at 2,000.
+    finite_population_factor = math.sqrt(max(0.0, 1.0 - n_val / n_pool))
+    for index, (i, j) in enumerate(pairs):
+        series = np.asarray(per_pair[index], dtype=float)
+        pair_means.append(float(series.mean()))
+        centred = series - series.mean()
+        within_variances.append(float(centred.var(ddof=1)) if series.size > 1 else 0.0)
+        acc_i = float(pool_correct[i].mean())
+        acc_j = float(pool_correct[j].mean())
+        agreement = float(np.mean(pool_correct[i] & pool_correct[j]))
+        paired_variances.append(
+            (paired_gap_se(acc_i, acc_j, n_val, agreement) * finite_population_factor) ** 2)
+        mean_acc = 0.5 * (acc_i + acc_j)
+        independence_variances.append(
+            2.0 * mean_acc * (1.0 - mean_acc) / n_val * finite_population_factor ** 2)
+
+    mean_within = float(np.mean(within_variances))
+    mean_paired = float(np.mean(paired_variances))
+    mean_independence = float(np.mean(independence_variances))
+    sampling_sd = math.sqrt(mean_within)
+    paired_sd = math.sqrt(mean_paired)
+    independence_sd = math.sqrt(mean_independence)
     return {
         "n_val": int(n_val),
         "n_pairs": len(pairs),
@@ -294,4 +353,12 @@ def validation_gap_dispersion(pool_correct: np.ndarray, n_val: int, n_draws: int
         "observed_sd": float(values.std(ddof=1)) if values.size > 1 else 0.0,
         "observed_abs_mean": float(np.abs(values).mean()),
         "pool_acc": float(pool_correct.mean()),
+        "sampling_sd": sampling_sd,
+        "paired_theory_sd": paired_sd,
+        "independence_theory_sd": independence_sd,
+        "finite_population_factor": finite_population_factor,
+        "between_pair_sd": float(np.asarray(pair_means, dtype=float).std(ddof=1))
+        if len(pair_means) > 1 else 0.0,
+        "ratio_paired": sampling_sd / paired_sd if paired_sd > 0 else float("nan"),
+        "ratio_independence": sampling_sd / independence_sd if independence_sd > 0 else float("nan"),
     }

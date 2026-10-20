@@ -46,6 +46,14 @@ def plot_floor_vs_measured(rows: list[dict], path: Path) -> Path:
     Both curves are standard deviations of the same quantity: the difference in
     validation accuracy between two checkpoints measured on the same n_val
     examples. Their ratio is the falsifiable content of the theory.
+
+    Two further curves decompose the measurement when the study JSON carries
+    them. The sampling component is the dispersion with each epoch pair's own
+    mean removed, so it holds the noise and not the true gap between the
+    epochs; the paired theory is the agreement-conditioned SE for the same
+    pairs. Their ratio is the clean test of the theory, while the raw measured
+    curve exceeds the closed form because it also carries the systematic
+    epoch-to-epoch spread.
     """
     xs = [row["n_val"] for row in rows]
     theory = [100.0 * row["se_theory"] for row in rows]
@@ -55,6 +63,12 @@ def plot_floor_vs_measured(rows: list[dict], path: Path) -> Path:
             label=r"closed form $\sqrt{2p(1-p)/n_{val}}$")
     ax.plot(xs, measured, color=_COLORS[1], marker="s", markersize=4, linewidth=1,
             label="measured SD of val. gap")
+    if all("se_sampling" in row for row in rows):
+        ax.plot(xs, [100.0 * row["se_sampling"] for row in rows], color=_COLORS[2],
+                marker="^", markersize=4, linewidth=1, label="sampling component")
+    if all("se_theory_paired" in row for row in rows):
+        ax.plot(xs, [100.0 * row["se_theory_paired"] for row in rows], color=_COLORS[3],
+                marker="D", markersize=4, linewidth=1, label="paired theory")
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_xlabel(r"validation size $n_{val}$")
