@@ -284,3 +284,39 @@ def test_fake_images_are_deterministic() -> None:
     a = FakeImages(10, 10, 28, eval_transform(28, "mnist"), seed=3)
     b = FakeImages(10, 10, 28, eval_transform(28, "mnist"), seed=3)
     assert torch.allclose(a[0][0], b[0][0])
+
+
+def test_interrupted_cell_resumes_instead_of_restarting(tmp_path) -> None:
+    """A cell stopped mid-run must continue, not silently redo every epoch.
+
+    `history.json` was written only after the final epoch, so the resume gate
+    never opened for an interrupted cell and a disconnect cost a whole cell.
+    The first epoch's recorded cost is the evidence: a restarted run measures
+    it again, a resumed run carries the original value forward.
+    """
+    from dataclasses import replace
+    from pathlib import Path
+
+    from src.engine.trainer import train_model
+
+    cfg = load_config("configs/smoke.yaml")
+    checkpoint_dir = str(tmp_path / "ckpt")
+
+    def run(epochs: int):
+        run_cfg = replace(cfg, train=replace(cfg.train, epochs=epochs,
+                                              keep_checkpoints=False, checkpoint_dir=checkpoint_dir))
+        loaders = build_loaders(run_cfg, build_datasets(run_cfg))
+        model = build_model("simplecnn", 10, 1)
+        return train_model(run_cfg, model, build_loss(run_cfg), loaders,
+                           torch.device("cpu"), param_count=1)
+
+    first = run(1)
+    assert first["epochs_done"] == 1
+    assert (Path(checkpoint_dir) / "history.json").is_file(), \
+        "history.json must exist before the final epoch, or the resume gate stays shut"
+
+    resumed = run(2)
+    assert resumed["epochs_done"] == 2
+    assert resumed["epoch_seconds"][0] == first["epoch_seconds"][0], \
+        "epoch 1 was measured again, so the run restarted instead of resuming"
+    assert resumed["train_loss"][0] == first["train_loss"][0]

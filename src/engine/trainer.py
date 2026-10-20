@@ -175,6 +175,38 @@ def train_model(cfg, model: torch.nn.Module, loss_fn, loaders: dict, device: tor
             log.error("resume from %s failed (%s); refusing to silently restart", last_path, exc)
             raise
 
+    def _history_payload(stopped: bool) -> dict:
+        """Current training state, written after every epoch.
+
+        `history.json` used to be written only once the final epoch finished,
+        but the resume gate above requires it to exist. An interrupted cell
+        therefore restarted from epoch 0 and a disconnect cost a whole cell.
+        Writing it every epoch makes the recorded state and the resumable
+        state the same file.
+        """
+        return {
+            "train_loss": list(train_loss),
+            "val_loss": list(val_loss),
+            "pool_acc": [float(row.mean()) for row in pool_rows],
+            "test_acc": [float(row.mean()) for row in test_rows],
+            "epoch_seconds": list(epoch_seconds),
+            "epochs_done": len(train_loss),
+            "n_pool": int(pool_rows[0].size),
+            "n_test": int(test_rows[0].size),
+            "stopped_early": stopped,
+            "param_count": int(param_count) if param_count is not None else None,
+            "config_digest": _config_digest(cfg),
+            "seed": int(cfg.train.seed),
+            "device": str(device),
+            "already_complete": False,
+        }
+
+    def _write_history(stopped: bool) -> dict:
+        history = _history_payload(stopped)
+        history_path.write_text(json.dumps(history, indent=2), encoding="utf-8")
+        mirror_file(history_path)
+        return history
+
     stopped_early = False
     try:
         for epoch in range(start_epoch, cfg.train.epochs):
@@ -216,6 +248,7 @@ def train_model(cfg, model: torch.nn.Module, loss_fn, loaders: dict, device: tor
                 "epoch_seconds": epoch_seconds, "rng_state": torch.get_rng_state(),
             }, last_path)
             mirror_file(last_path)
+            _write_history(stopped_early)
 
             if cfg.train.floor_stop:
                 stop_at = floor_stop_epoch([float(row.mean()) for row in pool_rows], pool_rows[0].size)
@@ -228,24 +261,4 @@ def train_model(cfg, model: torch.nn.Module, loss_fn, loaders: dict, device: tor
 
     if not pool_rows:
         raise RuntimeError("training produced no epochs")
-    pool_acc = [float(row.mean()) for row in pool_rows]
-    test_acc = [float(row.mean()) for row in test_rows]
-    history = {
-        "train_loss": train_loss,
-        "val_loss": val_loss,
-        "pool_acc": pool_acc,
-        "test_acc": test_acc,
-        "epoch_seconds": epoch_seconds,
-        "epochs_done": len(train_loss),
-        "n_pool": int(pool_rows[0].size),
-        "n_test": int(test_rows[0].size),
-        "stopped_early": stopped_early,
-        "param_count": int(param_count) if param_count is not None else None,
-        "config_digest": _config_digest(cfg),
-        "seed": int(cfg.train.seed),
-        "device": str(device),
-        "already_complete": False,
-    }
-    history_path.write_text(json.dumps(history, indent=2), encoding="utf-8")
-    mirror_file(history_path)
-    return history
+    return _write_history(stopped_early)
