@@ -98,10 +98,13 @@ decided after training. `configs/smoke.yaml` and `configs/mnist.yaml` set it.
 
 ## Colab
 
+Every step below is one cell. Each cell starts with `!cd selection-floor`, because
+a `!cd` inside a shell cell changes the directory only for that cell — the
+notebook's working directory is untouched, so a command that omits it runs from
+`/content` and cannot find `scripts` or `tests`.
+
 ```bash
-!git clone https://github.com/<owner>/selection-floor.git
-%cd selection-floor
-!bash colab_setup.sh
+!git clone https://github.com/xmadmaxdx/selection-floor.git && cd selection-floor && bash colab_setup.sh
 ```
 
 Cell 1 — Drive mount (optional; the code no-ops without it):
@@ -114,48 +117,64 @@ drive.mount('/content/drive', force_remount=False)
 Cell 2 — tests:
 
 ```bash
-!python -m pytest tests/test_smoke.py -q
+!cd selection-floor && python -m pytest tests/test_smoke.py -q
 ```
 
 Cell 3 — download:
 
 ```bash
-!python -m scripts.download_data --root data
+!cd selection-floor && python -m scripts.download_data --root data
 ```
 
-Cell 4 — training matrix (add `--floor-stop` for the H6 arm):
+Cell 4 — training matrix (add `--floor-stop --ckpt-tag fs` for the FloorStop arm):
 
 ```bash
-!python -m scripts.run_matrix --datasets mnist,fashionmnist \
-    --losses ce,label_smoothing,focal --models simplecnn \
-    --epochs 20 --seeds 0,1,2 --keep-checkpoints --download
+!cd selection-floor && python -m scripts.run_matrix --datasets mnist,fashionmnist --losses ce,label_smoothing,focal --models simplecnn --epochs 20 --seeds 0,1,2 --keep-checkpoints --download
 ```
 
 Cell 5 — replay for every trained cell:
 
 ```bash
-!for d in outputs/ckpt-*; do
-!  n=$(basename $d | sed 's/ckpt-//')
-!  python -m scripts.selection_study --checkpoint-dir $d --out outputs/studies/$n.json
-!done
+!cd selection-floor && (ls -d outputs/ckpt-* >/dev/null 2>&1 && for d in outputs/ckpt-*; do n=$(basename "$d" | sed 's/ckpt-//'); python -m scripts.selection_study --checkpoint-dir "$d" --out "outputs/studies/$n.json"; done) || echo "NO CHECKPOINTS FOUND"
 ```
 
 Cell 6 — per-cell metrics (needs `--keep-checkpoints`):
 
 ```bash
-!for c in outputs/tmp-configs/*.yaml; do
-!  n=$(basename $c .yaml)
-!  python -m scripts.evaluate --config $c --download --out outputs/evals/$n.json
-!done
+!cd selection-floor && (ls outputs/tmp-configs/*.yaml >/dev/null 2>&1 && for c in outputs/tmp-configs/*.yaml; do n=$(basename "$c" .yaml); python -m scripts.evaluate --config "$c" --download --out "outputs/evals/$n.json"; done) || echo "NO CONFIGS FOUND"
 ```
 
 Cell 7 — tables and figures:
 
 ```bash
-!python -m scripts.dump_tables --mdi-table
-!python -m scripts.dump_tables --glob "outputs/studies/*.json" --floor
-!python -m scripts.dump_tables --glob "outputs/studies/*.json"
-!cat outputs/matrix-manifest.json
+!cd selection-floor && python -m scripts.dump_tables --mdi-table
+```
+```bash
+!cd selection-floor && python -m scripts.dump_tables --glob "outputs/studies/*.json" --floor
+```
+```bash
+!cd selection-floor && python -m scripts.dump_tables --glob "outputs/studies/*.json"
+```
+```bash
+!cd selection-floor && cat outputs/matrix-manifest.json
+```
+
+Cell 8 — selection across runs (H2, H4, table T5):
+
+```bash
+!cd selection-floor && python -m scripts.seed_study --out outputs/seed-studies/seed.json
+```
+
+Cell 9 — per-cell metric tables (T4) and the FloorStop cost table (T6):
+
+```bash
+!cd selection-floor && python -m scripts.dump_eval_tables --glob "outputs/evals/*.json" --floor-stop-glob "outputs/evals/fs-*.json" --out outputs/tables/evals.json
+```
+
+Cell 10 — validation curves with the rule picks marked (F4):
+
+```bash
+!cd selection-floor && python -m scripts.plot_validation_curves --ckpt-glob "outputs/ckpt-*" --outdir outputs/curves
 ```
 
 Training is checkpointed per epoch and every completed cell is skipped on rerun,

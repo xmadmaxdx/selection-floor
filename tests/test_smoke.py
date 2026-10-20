@@ -320,3 +320,116 @@ def test_interrupted_cell_resumes_instead_of_restarting(tmp_path) -> None:
     assert resumed["epoch_seconds"][0] == first["epoch_seconds"][0], \
         "epoch 1 was measured again, so the run restarted instead of resuming"
     assert resumed["train_loss"][0] == first["train_loss"][0]
+
+
+def test_matrix_arms_do_not_share_output_paths() -> None:
+    """A second arm must not write over the first arm's checkpoints.
+
+    When both arms used the same paths, the second found every cell already
+    complete, skipped them all, and wrote a manifest reporting a success that
+    never happened.
+    """
+    from scripts.run_matrix import cell_paths, manifest_path
+
+    main_arm = cell_paths("mnist", "simplecnn", "ce", 0, multi_seed=True)
+    floor_arm = cell_paths("mnist", "simplecnn", "ce", 0, multi_seed=True, tag="fs")
+    assert main_arm.checkpoint_dir != floor_arm.checkpoint_dir
+    assert main_arm.config_name != floor_arm.config_name
+    assert manifest_path() != manifest_path("fs")
+    assert main_arm.checkpoint_dir == "outputs/ckpt-mnist-simplecnn-ce-s0"
+    assert floor_arm.checkpoint_dir == "outputs/ckpt-fs-mnist-simplecnn-ce-s0"
+
+
+def _write_cell(directory: Path, pool: np.ndarray, test: np.ndarray) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    np.save(directory / "pool_correctness.npy", pool)
+    np.save(directory / "test_correctness.npy", test)
+
+
+def test_seed_study_measures_a_growing_candidate_pool(tmp_path) -> None:
+    """K runs must produce a candidate pool of K x n_epochs checkpoints.
+
+    This is the mechanism behind H2 and H4: selecting across K runs is an
+    argmax over K times as many candidates, so the floor can only grow.
+    """
+    from scripts.seed_study import measure_group, Run
+
+    rng = np.random.default_rng(4)
+    epochs, n_pool, n_test = 5, 400, 300
+    group = []
+    for seed in range(3):
+        pool = rng.random((epochs, n_pool)) < 0.80
+        test = rng.random((epochs, n_test)) < 0.80
+        directory = tmp_path / f"ckpt-mnist-simplecnn-ce-s{seed}"
+        _write_cell(directory, pool, test)
+        group.append(Run(stem=f"s{seed}", directory=directory, dataset="mnist",
+                          model="simplecnn", loss="ce", seed=seed))
+
+    rows = measure_group(group, sizes=[100], trials=40, seed=1)
+    assert rows, "the seed study produced no rows"
+    for row in rows:
+        assert row["n_candidates"] == epochs * row["k_runs"]
+        assert row["optimism"] > 0, "the selected checkpoint must overstate its test accuracy"
+    single = [r for r in rows if r["k_runs"] == 1]
+    many = [r for r in rows if r["k_runs"] == 3]
+    assert len(single) == len(many) == 2, "both rules must be measured at every K"
+    for one, three in zip(single, many):
+        assert three["oracle_test"] >= one["oracle_test"] - 1e-12, \
+            "the union of three runs cannot have a lower oracle than one run"
+
+
+def test_eval_table_rows_and_floor_stop_comparison(tmp_path) -> None:
+    """The per-cell table must read the variants, and T6 must compare both arms."""
+    from scripts.dump_eval_tables import eval_rows, floor_stop_rows
+
+    payload = {
+        "checkpoint_dir": "outputs/ckpt-mnist-simplecnn-ce-s0",
+        "n_epochs": 20,
+        "seed": 0,
+        "floor_stop_epoch": 9,
+        "_identity": {"dataset": "mnist", "model": "simplecnn", "loss": "ce", "seed": 0},
+        "variants": {
+            "argmax": {"epoch": 19, "acc": 0.98, "macro_f1": 0.97, "bal_acc": 0.98,
+                       "selected_by": "full pool accuracy"},
+            "dense_avg_top5_by_loss": {"epoch": None, "acc": 0.981, "macro_f1": 0.971,
+                                       "bal_acc": 0.981, "selected_by": "weight-space average"},
+        },
+    }
+    rows = eval_rows([payload])
+    assert len(rows) == 2
+    assert {row["variant"] for row in rows} == {"argmax", "dense_avg_top5_by_loss"}
+    assert rows[0]["dataset"] == "mnist" and rows[0]["seed"] == 0
+
+    # T6 needs the main arm's correctness matrix to score the same epoch.
+    main_dir = tmp_path / "ckpt-mnist-simplecnn-ce-s0"
+    test = np.zeros((20, 100), dtype=bool)
+    test[:, :98] = True
+    _write_cell(main_dir, np.zeros((20, 400), dtype=bool), test)
+    main = dict(payload)
+    main["checkpoint_dir"] = str(main_dir)
+    floor = {
+        "checkpoint_dir": "outputs/ckpt-fs-mnist-simplecnn-ce-s0",
+        "n_epochs": 12,
+        "seed": 0,
+        "_identity": {"dataset": "mnist", "model": "simplecnn", "loss": "ce", "seed": 0},
+        "variants": {"argmax": {"epoch": 11, "acc": 0.98, "macro_f1": 0.97, "bal_acc": 0.98}},
+    }
+    compared = floor_stop_rows([main], [floor])
+    assert len(compared) == 1
+    row = compared[0]
+    assert row["epochs_saved"] == 8
+    assert abs(row["main_acc_at_same_epoch"] - 0.98) < 1e-12
+    assert abs(row["delta_same_epoch"]) < 1e-12, \
+        "the same epoch in both arms must score identically"
+
+
+def test_curve_markers_locate_the_rule_picks() -> None:
+    """The F4 markers must agree with the rules that select them."""
+    from scripts.plot_validation_curves import curve_markers
+    from src.engine.selector import select_argmax, select_one_se
+
+    curve = [0.60, 0.70, 0.905, 0.906, 0.907, 0.9065]
+    markers = curve_markers(curve, 5000)
+    assert markers["argmax_index"] == select_argmax(np.asarray(curve), 5000)
+    assert markers["one_se_index"] == select_one_se(np.asarray(curve), 5000)
+    assert markers["floor_stop_index"] is not None
